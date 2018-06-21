@@ -1,4 +1,4 @@
-﻿<# 
+<# 
     .DESCRIPTION 
         This will create a Public IP address for the failed over VM(s). 
          
@@ -18,10 +18,8 @@
         You must manually remove the Public IP interfaces 
  
     .NOTES 
-        AUTHOR: krnese@microsoft.com 
-        LASTEDIT: 20 March, 2017
-        UPdated AUTHOR: Nathan Swift
-        LASTEDIT: 20 June, 2018 
+        AUTHOR: naswif@microsoft.com 
+        LASTEDIT: 19 June, 2018 
 #> 
 param ( 
         [Object]$RecoveryPlanContext 
@@ -90,42 +88,17 @@ Catch
 Try
  {
 
-        ## NSG Rules
-        $rdpRule = New-AzureRmNetworkSecurityRuleConfig `
-            -Name "Allow-RDP" `
-            -Access Allow `
-            -Protocol Tcp `
-            -Direction Inbound `
-            -Priority 1001 `
-            -SourceAddressPrefix Internet `
-            -SourcePortRange * `
-            -DestinationPortRange 3389
+    ## NSG Rules
+    $rdpRule = New-AzureRmNetworkSecurityRuleConfig -Name Allow-RDP -Description "Allow RDP" -Access Allow -Protocol Tcp -Direction Inbound -Priority 1001 -SourceAddressPrefix Internet -SourcePortRange * -DestinationAddressPrefix * -DestinationPortRange 3389
+    $ftpRule = New-AzureRmNetworkSecurityRuleConfig -Name Allow-FTP -Description "Allow FTP" -Access Allow -Protocol Tcp -Direction Inbound -Priority 1002 -SourceAddressPrefix Internet -SourcePortRange * -DestinationAddressPrefix * -DestinationPortRange 21
+    $passftpRule = New-AzureRmNetworkSecurityRuleConfig -Name Allow-PassFTP -Description "Allow Passive FTP" -Access Allow -Protocol Tcp -Direction Inbound -Priority 1003 -SourceAddressPrefix Internet -SourcePortRange * -DestinationAddressPrefix * -DestinationPortRange 8001-8010
 
-        $ftpRule = New-AzureRmNetworkSecurityRuleConfig `
-            -Name "Allow-FTP" `
-            -Access Allow `
-            -Protocol Tcp `
-            -Direction Inbound `
-            -Priority 1002 `
-            -SourceAddressPrefix Internet `
-            -SourcePortRange * `
-            -DestinationPortRange 21
-
-        $passftpRule = New-AzureRmNetworkSecurityRuleConfig `
-            -Name "Allow-PassFTP" `
-            -Access Allow `
-            -Protocol Tcp `
-            -Direction Inbound `
-            -Priority 1003 `
-            -SourceAddressPrefix Internet `
-            -SourcePortRange * `
-            -DestinationPortRange 8001-8010
 
     foreach ($VM in $VMs)
     {
         $ARMNic = Get-AzureRmResource -ResourceId $VM.NetworkProfile.NetworkInterfaces[0].id
         $NIC = Get-AzureRmNetworkInterface -Name $ARMNic.Name -ResourceGroupName $ARMNic.ResourceGroupName
-        $PIP = New-AzureRmPublicIpAddress -Name $VM.Name -ResourceGroupName $RGName -Location $VM.Location -AllocationMethod Dynamic
+        $PIP = New-AzureRmPublicIpAddress -Name $VM.Name -ResourceGroupName $RGName -Location $VM.Location -AllocationMethod Dynamic -Force
         $NIC.IpConfigurations[0].PublicIpAddress = $PIP
         Set-AzureRmNetworkInterface -NetworkInterface $NIC    
         Write-Output ("Added public IP address to the following VM: " + $VM.Name) 
@@ -133,50 +106,33 @@ Try
         If ($VM.Name -match "ADDC" )
             {
                 Write-Output ("ADDC VM Found")
-                $addcAsg = New-AzureRmApplicationSecurityGroup `
-                    -ResourceGroupName $RGName `
-                    -Name ADDC-ASG `
-                    -Location $VM.Location
 
-                $nsg = New-AzureRmNetworkSecurityGroup `
-                    -ResourceGroupName $RGName `
-                    -Location $VM.Location `
-                    -Name "$VM.Name -NSG" `
-                    -SecurityRules $rdpRule`
-                    -DestinationApplicationSecurityGroupId $addcAsg.id
+                $nsgName = $VM.Name + "-NSG"
+                $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $RGname -Location $VM.Location -Name $nsgName -SecurityRules $rdpRule -Force
 
-                $asg = Get-ApplicationSecurityGroup -Name $addcAsg.Name -ResourceGroupName $addcAsg.ResourceGroupName
-
-                $nicset | Set-AzureRmNetworkInterfaceIpConfig -Name $NIC.IpConfigurations[0].Name -NetworkInterface $NIC -ApplicationSecurityGroup $addcAsg
-
+                $nicset = Get-AzureRmNetworkInterface -Name $NIC.name -ResourceGroupName $NIC.ResourceGroupName
+                $nicset.NetworkSecurityGroup = $nsg
                 $nicset | Set-AzureRmNetworkInterface
 
             }
         ElseIf ($VM.Name -match "FTP")
             {
                 Write-Output ("FTP VM Found")
-                $ftpAsg = New-AzureRmApplicationSecurityGroup `
-                    -ResourceGroupName $RGName `
-                    -Name FTP-ASG `
-                    -Location $VM.Location
 
-                $nsg = New-AzureRmNetworkSecurityGroup `
-                    -ResourceGroupName $RGName `
-                    -Location $VM.Location `
-                    -Name "$VM.Name -NSG" `
-                    -SecurityRules $rdpRule,$ftpRule,$passftpRule`
-                    -DestinationApplicationSecurityGroupId $ftpAsg.id
+                $nsgName = $VM.Name + "-NSG"
+                $nsg = New-AzureRmNetworkSecurityGroup -ResourceGroupName $RGname -Location $VM.Location -Name $nsgName -SecurityRules $rdpRule,$ftpRule,$passftpRule -Force
 
-                $asg = Get-ApplicationSecurityGroup -Name $ftpAsg.Name -ResourceGroupName $ftpAsg.ResourceGroupName
-
-                $nicset | Set-AzureRmNetworkInterfaceIpConfig -Name $NIC.IpConfigurations[0].Name -NetworkInterface $NIC -ApplicationSecurityGroup $ftpAsg
-
+                $nicset = Get-AzureRmNetworkInterface -Name $NIC.name -ResourceGroupName $NIC.ResourceGroupName
+                $nicset.NetworkSecurityGroup = $nsg
                 $nicset | Set-AzureRmNetworkInterface
 
                 $rs = Get-AzureRmDnsRecordSet -name "ftp" -RecordType A -ZoneName "swiftman33.com" -ResourceGroupName "rgswiftman33dns"
-                $rs.Records[0].Ipv4Address = $NIC.IpConfigurations[0].PublicIpAddress
-                Set-AzureRmDnsRecordSet -RecordSet $rs
 
+
+                $armpip = (Get-AzureRmResource -ResourceId $nicset.IpConfigurations[0].PublicIpAddress.Id).Properties.ipaddress
+                
+                $rs.Records[0].Ipv4Address = $armpip
+                Set-AzureRmDnsRecordSet -RecordSet $rs
             }
         Else 
             {
