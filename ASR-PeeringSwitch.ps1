@@ -1,4 +1,4 @@
-﻿<# 
+<# 
     .DESCRIPTION 
         This will re-create VNET peerings back to failed over ADDC in ASR VNET. 
          
@@ -13,18 +13,55 @@ param (
 
 Write-Output $RecoveryPlanContext
 
+Try
+ {
+    "Logging in to Azure..."
+    $Conn = Get-AutomationConnection -Name AzureRunAsConnection 
+     Add-AzureRMAccount -ServicePrincipal -Tenant $Conn.TenantID -ApplicationId $Conn.ApplicationID -CertificateThumbprint $Conn.CertificateThumbprint
+
+    "Selecting Azure subscription..."
+    Select-AzureRmSubscription -SubscriptionId $Conn.SubscriptionID -TenantId $Conn.tenantid 
+ }
+Catch
+ {
+      $ErrorMessage = 'Login to Azure subscription failed.'
+      $ErrorMessage += " `n"
+      $ErrorMessage += 'Error: '
+      $ErrorMessage += $_
+      Write-Error -Message $ErrorMessage `
+                    -ErrorAction Stop
+ }
+
 if($RecoveryPlanContext.FailoverDirection -ne 'PrimaryToSecondary')
 {
     Write-Output 'Script is reverses since Azure is not the target'
 
-    Remove-AzureRmVirtualNetworkPeering -VirtualNetworkName VNET-CACEN-ASR -Name VNET-CACEN-ASR-TO-VNET-UKSOU -ResourceGroupName rgSwiftSolvesBase-asr
-    Remove-AzureRmVirtualNetworkPeering -VirtualNetworkName VNET-UKSOU -Name VNET-UKSOU-TO-VNET-CACEN-ASR -ResourceGroupName rgSwiftSolvesBase
+    Remove-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-CACEN-ASR" -Name "VNET-CACEN-ASR-TO-VNET-UKSOU" -ResourceGroupName "rgSwiftSolvesBase-asr" -Force
+    Remove-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-UKSOU" -Name "VNET-UKSOU-TO-VNET-CACEN-ASR" -ResourceGroupName "rgSwiftSolvesBase" -Force
 
-    $vnet1 = Get-AzureRmVirtualNetwork -Name VNET-UKSOU -ResourceGroupName rgSwiftSolvesBase
-    $vnet2 = Get-AzureRmVirtualNetwork -Name VNET-CACEN -ResourceGroupName rgSwiftSolvesBase
+    $peering1name = (Get-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-CACEN-ASR" -ResourceGroupName "rgSwiftSolvesBase-asr").Name
+    $peering2name = (Get-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-UKSOU" -ResourceGroupName "rgSwiftSolvesBase-asr").Name
 
-    Add-AzureRmVirtualNetworkPeering -Name VNET-UKSOU-TO-VNET-CACEN -VirtualNetwork $vnet1 -RemoteVirtualNetworkId $vnet2.Id
-    Add-AzureRmVirtualNetworkPeering -Name VNET-CACEN-TO-VNET-UKSOU -VirtualNetwork $vnet2 -RemoteVirtualNetworkId $vnet1.Id
+    Do
+    {
+        "$peering1name found at $(get-date)"
+        "$peering2name found at $(get-date)"
+        $peering1name = (Get-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-CACEN-ASR" -ResourceGroupName "rgSwiftSolvesBase").Name
+        $peering2name = (Get-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-UKSOU" -ResourceGroupName "rgSwiftSolvesBase").Name
+        if (!$peering1name) { $check1 = 0 }
+        if ($peering1name) { $check1 = 1 }
+        if (!$peering2name) { $check2 = 0 }
+        if ($peering2name) { $check2 = 1 }
+        "$check1 is at $(get-date)"
+        "$check2 is at $(get-date)"
+        start-sleep 15
+    } While ($check2 -eq 1-and $check1 -eq 1)
+
+    $vnet1 = Get-AzureRmVirtualNetwork -Name "VNET-UKSOU" -ResourceGroupName "rgSwiftSolvesBase"
+    $vnet2 = Get-AzureRmVirtualNetwork -Name "VNET-CACEN" -ResourceGroupName "rgSwiftSolvesBase"
+
+    Add-AzureRmVirtualNetworkPeering -Name "VNET-UKSOU-TO-VNET-CACEN" -VirtualNetwork $vnet1 -RemoteVirtualNetworkId $vnet2.Id
+    Add-AzureRmVirtualNetworkPeering -Name "VNET-CACEN-TO-VNET-UKSOU" -VirtualNetwork $vnet2 -RemoteVirtualNetworkId $vnet1.Id
 }
 else
 {
@@ -47,33 +84,32 @@ else
     $RGName = $RecoveryPlanContext.VmMap.$VMInfo.ResourceGroupName
 
     Write-OutPut ("Name of resource group: " + $RGName)
-Try
- {
-    "Logging in to Azure..."
-    $Conn = Get-AutomationConnection -Name AzureRunAsConnection 
-     Add-AzureRMAccount -ServicePrincipal -Tenant $Conn.TenantID -ApplicationId $Conn.ApplicationID -CertificateThumbprint $Conn.CertificateThumbprint
 
-    "Selecting Azure subscription..."
-    Select-AzureRmSubscription -SubscriptionId $Conn.SubscriptionID -TenantId $Conn.tenantid 
- }
-Catch
- {
-      $ErrorMessage = 'Login to Azure subscription failed.'
-      $ErrorMessage += " `n"
-      $ErrorMessage += 'Error: '
-      $ErrorMessage += $_
-      Write-Error -Message $ErrorMessage `
-                    -ErrorAction Stop
- }
+    Remove-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-UKSOU" -Name "VNET-UKSOU-TO-VNET-CACEN" -ResourceGroupName "rgSwiftSolvesBase" -Force
+    Remove-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-CACEN" -Name "VNET-CACEN-TO-VNET-UKSOU" -ResourceGroupName "rgSwiftSolvesBase" -Force
 
-    
+    $peering1name = (Get-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-CACEN" -ResourceGroupName "rgSwiftSolvesBase").Name
+    $peering2name = (Get-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-UKSOU" -ResourceGroupName "rgSwiftSolvesBase").Name
 
-    Remove-AzureRmVirtualNetworkPeering -VirtualNetworkName VNET-UKSOU -Name VNET-UKSOU-TO-VNET-CACEN2 -ResourceGroupName rgSwiftSolvesBase
+    Do
+    {
+        "$peering1name found at $(get-date)"
+        "$peering2name found at $(get-date)"
+        $peering1name = (Get-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-CACEN" -ResourceGroupName "rgSwiftSolvesBase").Name
+        $peering2name = (Get-AzureRmVirtualNetworkPeering -VirtualNetworkName "VNET-UKSOU" -ResourceGroupName "rgSwiftSolvesBase").Name
+        if (!$peering1name) { $check1 = 0 }
+        if ($peering1name) { $check1 = 1 }
+        if (!$peering2name) { $check2 = 0 }
+        if ($peering2name) { $check2 = 1 }
+        "$check1 is at $(get-date)"
+        "$check2 is at $(get-date)"
+        start-sleep 15
+    } While ($check2 -eq 1-and $check1 -eq 1)
 
-    $vnet1 = Get-AzureRmVirtualNetwork -Name VNET-UKSOU -ResourceGroupName rgSwiftSolvesBase
-    $vnet2 = Get-AzureRmVirtualNetwork -Name VNET-CACEN-ASR -ResourceGroupName rgSwiftSolvesBase-asr
+    $vnet1 = Get-AzureRmVirtualNetwork -Name "VNET-UKSOU" -ResourceGroupName "rgSwiftSolvesBase"
+    $vnet2 = Get-AzureRmVirtualNetwork -Name "VNET-CACEN-ASR" -ResourceGroupName "rgSwiftSolvesBase-asr"
 
-    Add-AzureRmVirtualNetworkPeering -Name VNET-UKSOU-TO-VNET-CACEN-ASR -VirtualNetwork $vnet1 -RemoteVirtualNetworkId $vnet2.Id
-    Add-AzureRmVirtualNetworkPeering -Name VNET-CACEN-ASR-TO-VNET-UKSOU -VirtualNetwork $vnet2 -RemoteVirtualNetworkId $vnet1.Id
+    Add-AzureRmVirtualNetworkPeering -Name "VNET-UKSOU-TO-VNET-CACEN-ASR" -VirtualNetwork $vnet1 -RemoteVirtualNetworkId $vnet2.Id
+    Add-AzureRmVirtualNetworkPeering -Name "VNET-CACEN-ASR-TO-VNET-UKSOU" -VirtualNetwork $vnet2 -RemoteVirtualNetworkId $vnet1.Id
 
  }
