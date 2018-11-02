@@ -78,7 +78,7 @@ Catch
         If ($VM.Name -match "FTP" ) 
         {
             Write-Output ("FTP VM Found")
-            $url = "https://raw.githubusercontent.com/swiftsolves-msft/ASR-HUB-SPOKE-FTP/master/updatexml.ps1"
+            $url = "https://raw.githubusercontent.com/swiftsolves-msft/ASR-HUB-SPOKE-FTP/master/scripts/updatexml.ps1"
             $guid = New-Guid
 
             Set-AzureRmVMCustomScriptExtension -ResourceGroupName $RGName `
