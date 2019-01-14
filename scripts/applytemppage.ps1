@@ -1,4 +1,5 @@
-﻿Get-Partition -DriveLetter "P"| Set-Partition -NewDriveLetter $TempDriveLetter
+$TempDriveLetter = 'P'
+Get-Partition -DriveLetter "D"| Set-Partition -NewDriveLetter $TempDriveLetter
 $TempDriveLetter = $TempDriveLetter + ":"
 $drive = Get-WmiObject -Class win32_volume -Filter “DriveLetter = '$TempDriveLetter'”
 #re-enable page file on new Drive
